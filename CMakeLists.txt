@@ -1,9 +1,11 @@
 ﻿# CMakeList.txt : CMake project for VulkanTutorial, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.12)
+cmake_minimum_required (VERSION 3.28)
 
-project ("VulkanTutorial")
+project (VulkanTutorialProject)
+
+set(CMAKE_CXX_STANDARD 20)
 
 find_package(assimp CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
