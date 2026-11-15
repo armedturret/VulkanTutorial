@@ -1,9 +1,8 @@
 {
-  "dependencies": [
-    "assimp",
-    "glfw3",
-    "glm",
-    "vulkan",
-    "shader-slang"
-  ]
+    "dependencies": [
+        "glfw3",
+        "glm",
+        "vulkan",
+        "shader-slang"
+    ]
 }

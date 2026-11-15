@@ -30,13 +30,78 @@ void MainApplication::createInstance()
         .apiVersion = vk::ApiVersion14
     };
 
-    // verify glfw supports vulkan
-    int vulkanSupported = glfwVulkanSupported();
-    if (vulkanSupported == GLFW_FALSE)
+    // check if layers are supported
+    vector<char const*> requiredLayers = getRequiredValidationLayers();
+    vector<vk::LayerProperties> layerProperties = m_context.enumerateInstanceLayerProperties();
+    cout << "Vulkan validation layers supported by device:" << endl;
+
+    for (const auto& layer : layerProperties)
     {
-        throw runtime_error("GLFW failed to find vulkan loader!");
+        cout << "\t" << layer.layerName << endl;
+    }
+    cout << "Checking if required layers are supported..." << endl;
+    for (auto& requiredLayer : requiredLayers)
+    {
+        cout << "\t" << requiredLayer << " ... ";
+
+        if (ranges::none_of(layerProperties,
+            [requiredLayer]
+            (const auto& layerProperty) {
+                return strcmp(layerProperty.layerName, requiredLayer) == 0;
+            }))
+        {
+            throw runtime_error("Required layer not supported" + string(requiredLayer));
+        }
+        cout << "OK" << endl;
     }
 
+    vector<char const*> requiredExtensions = getRequiredInstanceExtensions();
+    vector<vk::ExtensionProperties> extensionProperties = m_context.enumerateInstanceExtensionProperties();
+    cout << "Vulkan validation extensions supported by device:" << endl;
+
+    for (const auto& extension : extensionProperties)
+    {
+        cout << "\t" << extension.extensionName << endl;
+    }
+    cout << "Checking if required extensions are supported..." << endl;
+    for (auto& requiredExtension : requiredExtensions)
+    {
+        cout << "\t" << requiredExtension << " ... ";
+
+        if (ranges::none_of(extensionProperties,
+            [requiredExtension]
+            (const auto& extensionProperty) {
+                return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
+            }))
+        {
+            throw runtime_error("Required extension not supported" + string(requiredExtension));
+        }
+        cout << "OK" << endl;
+    }
+
+    vk::InstanceCreateInfo createInfo{
+        .pApplicationInfo = &appInfo,
+        .enabledLayerCount = static_cast<uint32_t>(requiredLayers.size()),
+        .ppEnabledLayerNames = requiredLayers.data(),
+        .enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size()),
+        .ppEnabledExtensionNames = requiredExtensions.data(),
+    };
+
+    m_instance = vk::raii::Instance(m_context, createInfo);
+}
+
+std::vector<const char*> MainApplication::getRequiredValidationLayers()
+{
+    vector<char const*> requiredLayers;
+    if (USE_VALIDATION_LAYERS)
+    {
+        requiredLayers.assign(validationLayers.begin(), validationLayers.end());
+    }
+    return requiredLayers;
+}
+
+std::vector<const char*> MainApplication::getRequiredInstanceExtensions()
+{
     // grab the glfw extensions needed to initialize the vulkan instance
     uint32_t glfwExtensionCount = 0;
     auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -44,38 +109,8 @@ void MainApplication::createInstance()
     // check if the extensions are valid and supported
     vector<vk::ExtensionProperties> extensionProperties = m_context.enumerateInstanceExtensionProperties();
 
-    cout << "Vulkan extension supported by device:" << endl;
-
-    for (const auto& extension : extensionProperties)
-    {
-        cout << "\t" << extension.extensionName << endl;
-    }
-
-    cout << "Checking if required extensions are supported..." << endl;
-    for (uint32_t i = 0; i < glfwExtensionCount; i++)
-    {
-        auto glfwExtension = glfwExtensions[i];
-
-        cout << "\t" << glfwExtension << " ... ";
-
-        if (ranges::none_of(extensionProperties,
-            [glfwExtension]
-            (const auto& extensionProperty) {
-                return strcmp(extensionProperty.extensionName, glfwExtension) == 0;
-            }))
-        {
-            throw runtime_error("Required extension not supported" + string(glfwExtension));
-        }
-        cout << "OK" << endl;
-    }
-
-    vk::InstanceCreateInfo createInfo{
-        .pApplicationInfo = &appInfo,
-        .enabledExtensionCount = glfwExtensionCount,
-        .ppEnabledExtensionNames = glfwExtensions
-    };
-
-    m_instance = vk::raii::Instance(m_context, createInfo);
+    std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+    return extensions;
 }
 
 void MainApplication::mainLoop()
