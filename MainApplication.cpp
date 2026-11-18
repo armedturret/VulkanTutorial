@@ -18,6 +18,7 @@ void MainApplication::initVulkan()
 {
     cout << "Initializing vulkan..." << endl;
     createInstance();
+    createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
 }
@@ -93,6 +94,17 @@ void MainApplication::createInstance()
     m_instance = vk::raii::Instance(m_context, createInfo);
 }
 
+void MainApplication::createSurface()
+{
+    cout << "Creating Vulkan surface..." << endl;
+    VkSurfaceKHR surface;
+    if (glfwCreateWindowSurface(*m_instance, m_window, nullptr, &surface) != 0)
+    {
+        throw runtime_error("Failed to create Vulkan window surface!");
+    }
+    m_surface = vk::raii::SurfaceKHR(m_instance, surface);
+}
+
 void MainApplication::pickPhysicalDevice()
 {
     // pick a GPU to use for vulkan
@@ -123,14 +135,17 @@ void MainApplication::pickPhysicalDevice()
             continue;
         }
 
-        auto queueFamilies = physicalDevice.getQueueFamilyProperties();
-        if (ranges::none_of(queueFamilies, 
-            [](const auto& qfp) 
-            { 
-                return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) !=
-                    static_cast<vk::QueueFlags>(0);
+        auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+        bool validQueueAvailable = false;
+        for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
+        {
+            if (isValidQueueFamily(physicalDevice, queueFamilyProperties, qfpIndex))
+            {
+                validQueueAvailable = true;
+                break;
             }
-        ))
+        }
+        if(!validQueueAvailable)
         {
             cout << "BAD (No valid queue family)" << endl;
             continue;
@@ -204,13 +219,13 @@ void MainApplication::pickPhysicalDevice()
 
 void MainApplication::createLogicalDevice()
 {
+    cout << "Creating logical device..." << endl;
     auto queueFamilyProperties = m_physicalDevice.getQueueFamilyProperties();
     // find the index of the first graphics-capable queue family
     uint32_t qfpIndex = 0;
     for (qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
     {
-        if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) !=
-            static_cast<vk::QueueFlags>(0))
+        if(isValidQueueFamily(m_physicalDevice, queueFamilyProperties, qfpIndex))
             break;
     }
 
@@ -269,6 +284,19 @@ std::vector<const char*> MainApplication::getRequiredInstanceExtensions()
 
     std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
     return extensions;
+}
+
+bool MainApplication::isValidQueueFamily(
+    vk::raii::PhysicalDevice physicalDevice,
+    const vector<vk::QueueFamilyProperties>& qfpList,
+    uint32_t qfpIndex
+)
+{
+    const auto& qfp = qfpList[qfpIndex];
+    bool graphicsSupported = (qfp.queueFlags & vk::QueueFlagBits::eGraphics) !=
+        static_cast<vk::QueueFlags>(0);
+    bool surfacesSupported = physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface);
+    return graphicsSupported && surfacesSupported;
 }
 
 void MainApplication::mainLoop()

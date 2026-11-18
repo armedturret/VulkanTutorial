@@ -34,10 +34,18 @@ private:
     // vulkan init functions
     void initVulkan();
     void createInstance();
+    void createSurface();
     void pickPhysicalDevice();
     void createLogicalDevice();
     std::vector<const char*> getRequiredValidationLayers();
     std::vector<const char*> getRequiredInstanceExtensions();
+
+    // returns if a queue family has all the properties we expect
+    bool isValidQueueFamily(
+        vk::raii::PhysicalDevice physicalDevice,
+        const std::vector<vk::QueueFamilyProperties>& qfpList,
+        uint32_t qfpIndex
+    );
 
     // main loop functions
     void mainLoop();
@@ -49,6 +57,9 @@ private:
     vk::raii::Context m_context;
     vk::raii::Instance m_instance = nullptr;
     vk::raii::PhysicalDevice m_physicalDevice = nullptr;
+    // logical device tied to the physical one
     vk::raii::Device m_device = nullptr;
     vk::raii::Queue m_graphicsQueue = nullptr;
+    // window surface to render to
+    vk::raii::SurfaceKHR m_surface = nullptr;
 };
