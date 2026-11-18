@@ -29,6 +29,7 @@ private:
     // vulkan init functions
     void initVulkan();
     void createInstance();
+    void pickPhysicalDevice();
     std::vector<const char*> getRequiredValidationLayers();
     std::vector<const char*> getRequiredInstanceExtensions();
 
@@ -41,4 +42,5 @@ private:
 
     vk::raii::Context m_context;
     vk::raii::Instance m_instance = nullptr;
+    vk::raii::PhysicalDevice m_physicalDevice = nullptr;
 };
