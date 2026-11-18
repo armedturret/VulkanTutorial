@@ -19,6 +19,11 @@ const std::vector<char const*> validationLayers = {
     "VK_LAYER_KHRONOS_validation" // comes with the lunarg vulkan sdk
 };
 
+
+const std::vector<const char*> requiredDeviceExtensions = { 
+    vk::KHRSwapchainExtensionName 
+};
+
 class MainApplication {
 public:
     void run();
@@ -30,6 +35,7 @@ private:
     void initVulkan();
     void createInstance();
     void pickPhysicalDevice();
+    void createLogicalDevice();
     std::vector<const char*> getRequiredValidationLayers();
     std::vector<const char*> getRequiredInstanceExtensions();
 
@@ -43,4 +49,6 @@ private:
     vk::raii::Context m_context;
     vk::raii::Instance m_instance = nullptr;
     vk::raii::PhysicalDevice m_physicalDevice = nullptr;
+    vk::raii::Device m_device = nullptr;
+    vk::raii::Queue m_graphicsQueue = nullptr;
 };

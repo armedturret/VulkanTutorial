@@ -19,6 +19,7 @@ void MainApplication::initVulkan()
     cout << "Initializing vulkan..." << endl;
     createInstance();
     pickPhysicalDevice();
+    createLogicalDevice();
 }
 
 void MainApplication::createInstance()
@@ -126,7 +127,8 @@ void MainApplication::pickPhysicalDevice()
         if (ranges::none_of(queueFamilies, 
             [](const auto& qfp) 
             { 
-                return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != vk::QueueFlags(0); 
+                return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) !=
+                    static_cast<vk::QueueFlags>(0);
             }
         ))
         {
@@ -134,7 +136,7 @@ void MainApplication::pickPhysicalDevice()
             continue;
         }
 
-        vector<const char*> requiredDeviceExtensions = { vk::KHRSwapchainExtensionName };
+        // lets us render to a window
         auto deviceExtensionProperties = physicalDevice.enumerateDeviceExtensionProperties();
         if (ranges::any_of(requiredDeviceExtensions, 
             [&deviceExtensionProperties](const auto& requiredExtension)
@@ -198,6 +200,52 @@ void MainApplication::pickPhysicalDevice()
 
     cout << "Using " << bestDevice.getProperties().deviceName << endl;
     m_physicalDevice = bestDevice;
+}
+
+void MainApplication::createLogicalDevice()
+{
+    auto queueFamilyProperties = m_physicalDevice.getQueueFamilyProperties();
+    // find the index of the first graphics-capable queue family
+    uint32_t qfpIndex = 0;
+    for (qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
+    {
+        if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) !=
+            static_cast<vk::QueueFlags>(0))
+            break;
+    }
+
+    // Queue priority required even w/ just one queue
+    float queuePriority = 0.5f;
+    // Creates a queue family of one
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo{
+        .queueFamilyIndex = qfpIndex,
+        .queueCount = 1,
+        .pQueuePriorities = &queuePriority
+    };
+
+    // Request the previous verified features
+    // StructureChain here does the heavily lifting of filling in the .pNext values
+    vk::StructureChain<vk::PhysicalDeviceFeatures2,
+        vk::PhysicalDeviceVulkan11Features,
+        vk::PhysicalDeviceVulkan13Features,
+        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
+        featureChain = {
+            {}, // PhysicalDeviceFeatures2
+            {.shaderDrawParameters = true}, // PhysicalDeviceVulkan11Features
+            {.dynamicRendering = true}, // PhysicalDeviceVulkan13Features
+            {.extendedDynamicState = true} // PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        };
+
+    vk::DeviceCreateInfo deviceCreateInfo{
+        .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(), // chain into requesting device features
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &deviceQueueCreateInfo,
+        .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size()),
+        .ppEnabledExtensionNames = requiredDeviceExtensions.data()
+    };
+    m_device = vk::raii::Device(m_physicalDevice, deviceCreateInfo);
+
+    m_graphicsQueue = vk::raii::Queue(m_device, qfpIndex, 0);
 }
 
 std::vector<const char*> MainApplication::getRequiredValidationLayers()
