@@ -21,6 +21,7 @@ void MainApplication::initVulkan()
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
+    createSwapChain();
 }
 
 void MainApplication::createInstance()
@@ -261,6 +262,107 @@ void MainApplication::createLogicalDevice()
     m_device = vk::raii::Device(m_physicalDevice, deviceCreateInfo);
 
     m_graphicsQueue = vk::raii::Queue(m_device, qfpIndex, 0);
+}
+
+void MainApplication::createSwapChain()
+{
+    assert(m_surface != nullptr);
+    assert(m_physicalDevice != nullptr);
+    assert(m_device != nullptr);
+    cout << "Creating swap chain..." << endl;
+    // choose swap chain properties based on available options
+    vk::SurfaceCapabilitiesKHR surfaceCapabilities =
+        m_physicalDevice.getSurfaceCapabilitiesKHR(m_surface);
+    vk::Extent2D swapChainExtent = chooseSwapExtent(surfaceCapabilities);
+    uint32_t minImgCount = chooseSwapMinImageCount(surfaceCapabilities);
+
+    auto availablePresentModes = m_physicalDevice.getSurfacePresentModesKHR( *m_surface);
+    vk::PresentModeKHR presentMode = choosePresentMode(availablePresentModes);
+
+    auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(m_surface);
+    vk::SurfaceFormatKHR swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
+
+    // actually create the thing
+    vk::SwapchainCreateInfoKHR swapchainCreateInfo{
+        .surface = *m_surface,
+        .minImageCount = minImgCount,
+        .imageFormat = swapChainSurfaceFormat.format,
+        .imageColorSpace = swapChainSurfaceFormat.colorSpace,
+        .imageExtent = swapChainExtent,
+        .imageArrayLayers = 1, // this isn't a stereoscopic app
+        .imageUsage = vk::ImageUsageFlagBits::eColorAttachment, // simple color buffer for now
+        .imageSharingMode = vk::SharingMode::eExclusive, // images can only be in one queue
+        .preTransform = surfaceCapabilities.currentTransform,
+        .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque, // window should be solid
+        .presentMode = presentMode,
+        .clipped = true, // cull if operation won't be visible
+        .oldSwapchain = nullptr // used to specify the previous swap chain after a window refresh
+    };
+
+    m_swapchain = vk::raii::SwapchainKHR(m_device, swapchainCreateInfo);
+    m_swapchainImages = m_swapchain.getImages();
+}
+
+vk::SurfaceFormatKHR MainApplication::chooseSwapSurfaceFormat(
+    vector<vk::SurfaceFormatKHR> const& availableFormats)
+{
+    assert(!availableFormats.empty());
+    const auto formatIt = ranges::find_if(availableFormats,
+        [](const vk::SurfaceFormatKHR& format) {
+            return format.format == vk::Format::eB8G8R8A8Srgb && 
+                format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
+        }
+    );
+    // If we found our ideal sRGB format, great, if not just pick the first one
+    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
+}
+
+vk::PresentModeKHR MainApplication::choosePresentMode(
+    vector <vk::PresentModeKHR> const &availablePresentModes)
+{
+    // Triple buffered vsync
+    // While waiting on the refresh, keep writing to non-presented buffers
+    // This results in reduced latency
+    if (ranges::any_of(availablePresentModes, [](const auto val) { return val == vk::PresentModeKHR::eMailbox; }))
+        return vk::PresentModeKHR::eMailbox;
+
+    // FIFO MUST be available
+    // This is classical vsync, do not attempt to swap buffers until the next buffer in the queue is available
+    assert(ranges::any_of(availablePresentModes, [](const auto val) { return val == vk::PresentModeKHR::eFifo; }));
+    return vk::PresentModeKHR::eFifo;
+}
+
+vk::Extent2D MainApplication::chooseSwapExtent(
+    vk::SurfaceCapabilitiesKHR const& capabilities)
+{
+    // If currentExtent width or height is set to the max integer value,
+    // the window manager lets us pick a resolution.
+    if (capabilities.currentExtent.width != numeric_limits<uint32_t>::max())
+    {
+        // Window manager dictated a resolution, just return this
+        return capabilities.currentExtent;
+    }
+    // set width and height to the size of the glfw framebuffer
+    int width, height;
+    glfwGetFramebufferSize(m_window, &width, &height);
+
+    return {
+        clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+        clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
+    };
+}
+
+uint32_t MainApplication::chooseSwapMinImageCount(
+    vk::SurfaceCapabilitiesKHR const& surfaceCapabilities)
+{
+    // try to request 3 images at least for triple buffering
+    auto minImageCount = max(3u, surfaceCapabilities.minImageCount);
+    // if max image count is not 0, we can't request unlimited images
+    if (surfaceCapabilities.maxImageCount != 0)
+        minImageCount = clamp(minImageCount,
+            surfaceCapabilities.minImageCount,
+            surfaceCapabilities.maxImageCount);
+    return minImageCount;
 }
 
 std::vector<const char*> MainApplication::getRequiredValidationLayers()
