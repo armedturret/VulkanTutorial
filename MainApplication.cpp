@@ -273,22 +273,22 @@ void MainApplication::createSwapChain()
     // choose swap chain properties based on available options
     vk::SurfaceCapabilitiesKHR surfaceCapabilities =
         m_physicalDevice.getSurfaceCapabilitiesKHR(m_surface);
-    vk::Extent2D swapChainExtent = chooseSwapExtent(surfaceCapabilities);
+    m_swapchainExtent = chooseSwapExtent(surfaceCapabilities);
     uint32_t minImgCount = chooseSwapMinImageCount(surfaceCapabilities);
 
     auto availablePresentModes = m_physicalDevice.getSurfacePresentModesKHR( *m_surface);
     vk::PresentModeKHR presentMode = choosePresentMode(availablePresentModes);
 
     auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(m_surface);
-    vk::SurfaceFormatKHR swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
+    m_swapchainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
 
     // actually create the thing
     vk::SwapchainCreateInfoKHR swapchainCreateInfo{
         .surface = *m_surface,
         .minImageCount = minImgCount,
-        .imageFormat = swapChainSurfaceFormat.format,
-        .imageColorSpace = swapChainSurfaceFormat.colorSpace,
-        .imageExtent = swapChainExtent,
+        .imageFormat = m_swapchainSurfaceFormat.format,
+        .imageColorSpace = m_swapchainSurfaceFormat.colorSpace,
+        .imageExtent = m_swapchainExtent,
         .imageArrayLayers = 1, // this isn't a stereoscopic app
         .imageUsage = vk::ImageUsageFlagBits::eColorAttachment, // simple color buffer for now
         .imageSharingMode = vk::SharingMode::eExclusive, // images can only be in one queue

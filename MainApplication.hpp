@@ -76,4 +76,6 @@ private:
     vk::raii::SurfaceKHR m_surface = nullptr;
     vk::raii::SwapchainKHR m_swapchain = nullptr;
     std::vector<vk::Image> m_swapchainImages;
+    vk::SurfaceFormatKHR m_swapchainSurfaceFormat;
+    vk::Extent2D m_swapchainExtent;
 };
