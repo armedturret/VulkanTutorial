@@ -19,8 +19,8 @@ const std::vector<char const*> validationLayers = {
     "VK_LAYER_KHRONOS_validation" // comes with the lunarg vulkan sdk
 };
 
-const std::vector<const char*> requiredDeviceExtensions = { 
-    vk::KHRSwapchainExtensionName 
+const std::vector<const char*> requiredDeviceExtensions = {
+    vk::KHRSwapchainExtensionName // swapchain extension necessary for rendering to windows
 };
 
 class MainApplication {
@@ -52,6 +52,8 @@ private:
     uint32_t chooseSwapMinImageCount(
         vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
 
+    void createImageViews();
+
     // returns if a queue family has all the properties we expect
     bool isValidQueueFamily(
         vk::raii::PhysicalDevice physicalDevice,
@@ -76,6 +78,7 @@ private:
     vk::raii::SurfaceKHR m_surface = nullptr;
     vk::raii::SwapchainKHR m_swapchain = nullptr;
     std::vector<vk::Image> m_swapchainImages;
+    std::vector<vk::raii::ImageView> m_swapchainImageViews;
     vk::SurfaceFormatKHR m_swapchainSurfaceFormat;
     vk::Extent2D m_swapchainExtent;
 };

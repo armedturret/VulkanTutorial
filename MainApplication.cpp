@@ -22,6 +22,7 @@ void MainApplication::initVulkan()
     pickPhysicalDevice();
     createLogicalDevice();
     createSwapChain();
+    createImageViews();
 }
 
 void MainApplication::createInstance()
@@ -146,7 +147,7 @@ void MainApplication::pickPhysicalDevice()
                 break;
             }
         }
-        if(!validQueueAvailable)
+        if (!validQueueAvailable)
         {
             cout << "BAD (No valid queue family)" << endl;
             continue;
@@ -154,14 +155,14 @@ void MainApplication::pickPhysicalDevice()
 
         // lets us render to a window
         auto deviceExtensionProperties = physicalDevice.enumerateDeviceExtensionProperties();
-        if (ranges::any_of(requiredDeviceExtensions, 
+        if (ranges::any_of(requiredDeviceExtensions,
             [&deviceExtensionProperties](const auto& requiredExtension)
-            { 
-                return ranges::none_of(deviceExtensionProperties, 
+            {
+                return ranges::none_of(deviceExtensionProperties,
                     [requiredExtension](const auto& extension) {
-                        return strcmp(extension.extensionName, requiredExtension) == 0; 
+                        return strcmp(extension.extensionName, requiredExtension) == 0;
                     }
-                ); 
+                );
             }
         ))
         {
@@ -180,7 +181,6 @@ void MainApplication::pickPhysicalDevice()
         }
         if (!features.get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering)
         {
-
             cout << "BAD (Must support dynamic rendering)" << endl;
             continue;
         }
@@ -226,7 +226,7 @@ void MainApplication::createLogicalDevice()
     uint32_t qfpIndex = 0;
     for (qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
     {
-        if(isValidQueueFamily(m_physicalDevice, queueFamilyProperties, qfpIndex))
+        if (isValidQueueFamily(m_physicalDevice, queueFamilyProperties, qfpIndex))
             break;
     }
 
@@ -250,7 +250,7 @@ void MainApplication::createLogicalDevice()
             {.shaderDrawParameters = true}, // PhysicalDeviceVulkan11Features
             {.dynamicRendering = true}, // PhysicalDeviceVulkan13Features
             {.extendedDynamicState = true} // PhysicalDeviceExtendedDynamicStateFeaturesEXT
-        };
+    };
 
     vk::DeviceCreateInfo deviceCreateInfo{
         .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(), // chain into requesting device features
@@ -276,7 +276,7 @@ void MainApplication::createSwapChain()
     m_swapchainExtent = chooseSwapExtent(surfaceCapabilities);
     uint32_t minImgCount = chooseSwapMinImageCount(surfaceCapabilities);
 
-    auto availablePresentModes = m_physicalDevice.getSurfacePresentModesKHR( *m_surface);
+    auto availablePresentModes = m_physicalDevice.getSurfacePresentModesKHR(*m_surface);
     vk::PresentModeKHR presentMode = choosePresentMode(availablePresentModes);
 
     auto availableFormats = m_physicalDevice.getSurfaceFormatsKHR(m_surface);
@@ -309,7 +309,7 @@ vk::SurfaceFormatKHR MainApplication::chooseSwapSurfaceFormat(
     assert(!availableFormats.empty());
     const auto formatIt = ranges::find_if(availableFormats,
         [](const vk::SurfaceFormatKHR& format) {
-            return format.format == vk::Format::eB8G8R8A8Srgb && 
+            return format.format == vk::Format::eB8G8R8A8Srgb &&
                 format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
         }
     );
@@ -318,7 +318,7 @@ vk::SurfaceFormatKHR MainApplication::chooseSwapSurfaceFormat(
 }
 
 vk::PresentModeKHR MainApplication::choosePresentMode(
-    vector <vk::PresentModeKHR> const &availablePresentModes)
+    vector <vk::PresentModeKHR> const& availablePresentModes)
 {
     // Triple buffered vsync
     // While waiting on the refresh, keep writing to non-presented buffers
@@ -363,6 +363,32 @@ uint32_t MainApplication::chooseSwapMinImageCount(
             surfaceCapabilities.minImageCount,
             surfaceCapabilities.maxImageCount);
     return minImageCount;
+}
+
+void MainApplication::createImageViews()
+{
+    assert(!m_swapchainImages.empty());
+    assert(m_swapchainImageViews.empty());
+
+    cout << "Creating image views for swap chain..." << endl;
+
+    // creates image views that let us access parts of images
+    vk::ImageViewCreateInfo imageViewCreateInfo{
+        .viewType = vk::ImageViewType::e2D,
+        .format = m_swapchainSurfaceFormat.format,
+    };
+
+    imageViewCreateInfo.subresourceRange = {
+        .aspectMask = vk::ImageAspectFlagBits::eColor,
+        .levelCount = 1, // no mip map levels
+        .layerCount = 1 // not stereoscopic
+    };
+
+    for (auto& image : m_swapchainImages)
+    {
+        imageViewCreateInfo.image = image;
+        m_swapchainImageViews.emplace_back(m_device, imageViewCreateInfo);
+    }
 }
 
 std::vector<const char*> MainApplication::getRequiredValidationLayers()
