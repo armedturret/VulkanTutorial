@@ -3,8 +3,27 @@
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
+#include <fstream>
 
 using namespace std;
+
+vector<uint8_t> MainApplication::readFileBinary(const std::string& filename)
+{
+    // start from end to get file size quickly
+    ifstream file(filename, ios::ate | ios::binary);
+
+    if (!file.is_open())
+    {
+        throw runtime_error("Unable to open " + filename + "!");
+    }
+
+    vector<uint8_t> buffer(file.tellg());
+    file.seekg(0, ios::beg);
+    file.read(reinterpret_cast<char*>(buffer.data()), static_cast<streamsize>(buffer.size()));
+    file.close();
+
+    return buffer;
+}
 
 void MainApplication::run()
 {
@@ -23,6 +42,7 @@ void MainApplication::initVulkan()
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createGraphicsPipeline();
 }
 
 void MainApplication::createInstance()
@@ -425,6 +445,36 @@ bool MainApplication::isValidQueueFamily(
         static_cast<vk::QueueFlags>(0);
     bool surfacesSupported = physicalDevice.getSurfaceSupportKHR(qfpIndex, *m_surface);
     return graphicsSupported && surfacesSupported;
+}
+
+void MainApplication::createGraphicsPipeline()
+{
+    cout << "Creating graphics pipeline" << endl;
+    auto shaderCode = readFileBinary("shaders/TriangleShader.spv");
+    vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
+    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
+        .stage = vk::ShaderStageFlagBits::eVertex,
+        .module = shaderModule,
+        .pName = "vertMain",
+        .pSpecializationInfo = nullptr // optional compile time "uniforms"
+    };
+    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{
+        .stage = vk::ShaderStageFlagBits::eFragment,
+        .module = shaderModule,
+        .pName = "fragMain",
+        .pSpecializationInfo = nullptr // optional compile time "uniforms"
+    };
+    vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+}
+
+vk::raii::ShaderModule MainApplication::createShaderModule(const vector<uint8_t>& code) const
+{
+    vk::ShaderModuleCreateInfo createInfo{
+        .codeSize = code.size() * sizeof(uint8_t),
+        // this is safe since vector ensures bytes are worst-case aligned
+        .pCode = reinterpret_cast<const uint32_t*>(code.data())
+    };
+    return { m_device, createInfo };
 }
 
 void MainApplication::mainLoop()

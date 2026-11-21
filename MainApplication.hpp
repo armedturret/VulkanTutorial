@@ -28,6 +28,8 @@ public:
     void run();
 
 private:
+    static std::vector<std::uint8_t> readFileBinary(const std::string& filename);
+
     void initWindow();
 
     // vulkan init functions
@@ -60,6 +62,10 @@ private:
         const std::vector<vk::QueueFamilyProperties>& qfpList,
         uint32_t qfpIndex
     );
+
+    // funcs for creating the graphics pipeline
+    void createGraphicsPipeline();
+    vk::raii::ShaderModule createShaderModule(const std::vector<std::uint8_t>& code) const;
 
     // main loop functions
     void mainLoop();

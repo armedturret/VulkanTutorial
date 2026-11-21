@@ -69,3 +69,6 @@ Testing/
 
 # Visual studio files
 .vs/
+
+# Spir-V files
+*.spv
