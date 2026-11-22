@@ -465,6 +465,92 @@ void MainApplication::createGraphicsPipeline()
         .pSpecializationInfo = nullptr // optional compile time "uniforms"
     };
     vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+    // Normally specifies layout of vertex buffers, empty for now
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+
+    // Tells vulkan to render like GL_TRIANGLES
+    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{ 
+        .topology = vk::PrimitiveTopology::eTriangleList 
+    };
+
+    vk::PipelineRasterizationStateCreateInfo rasterizer{
+        .depthClampEnable = vk::False, // discard fragments outside depth range
+        .rasterizerDiscardEnable = vk::False, // if this is true, rasterizer stage discards everything
+        .polygonMode = vk::PolygonMode::eFill,
+        .cullMode = vk::CullModeFlagBits::eBack,
+        .frontFace = vk::FrontFace::eClockwise,
+        .depthBiasEnable = vk::False, // if true, allows rasterizer to alter depth values
+        .lineWidth = 1.0f
+    };
+    // disable MSAA for now
+    vk::PipelineMultisampleStateCreateInfo multiSampling{
+        .rasterizationSamples = vk::SampleCountFlagBits::e1,
+        .sampleShadingEnable = vk::False
+    };
+    // specify alpha blending for this framebuffer
+    // color = newColor * srcAlpha + oldColor * (1 - srcAlpha)
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+        .blendEnable = vk::True,
+        .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+        .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+        .colorBlendOp = vk::BlendOp::eAdd,
+        .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+        .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+        .alphaBlendOp = vk::BlendOp::eAdd,
+        .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA
+    };
+    // this setting affects all framebuffers
+    vk::PipelineColorBlendStateCreateInfo colorBlending{
+        .logicOpEnable = vk::False, // disable bitwise blending
+        .logicOp = vk::LogicOp::eCopy, // ignored?
+        .attachmentCount = 1,
+        .pAttachments = &colorBlendAttachment
+    };
+
+    // Tells vulkan we want to specify viewport and scissor size at render time (instead of now)
+    vector<vk::DynamicState> dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+    vk::PipelineDynamicStateCreateInfo dynamicState{
+        .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+        .pDynamicStates = dynamicStates.data()
+    };
+    vk::PipelineViewportStateCreateInfo viewportState{ .viewportCount = 1, .scissorCount = 1 };
+    
+    // normally specifies available uniforms, keep empty for now
+    // separate from push constants (which are sorta like uniforms too...)
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{ 
+        .setLayoutCount = 0, 
+        .pushConstantRangeCount = 0 
+    };
+    m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
+
+    // future me: you can use basePipelineIndex or basePipelineHandle to create pipeline derivatives
+    // cheaper than re-creating a full pipeline if functionality common
+    vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {
+        {
+            .stageCount = 2, // vert + frag
+            .pStages = shaderStages,
+            .pVertexInputState = &vertexInputInfo,
+            .pInputAssemblyState = &inputAssembly,
+            .pViewportState = &viewportState,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState = &multiSampling,
+            .pColorBlendState = &colorBlending,
+            .pDynamicState = &dynamicState,
+            .layout = m_pipelineLayout,
+            // since dynamic rendering is available, we can skip specifying renderpass + framebuffer objects
+            .renderPass = nullptr
+        },
+        // this is necessary if renderpass is nullptr, otherwise it should be omitted
+        {
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &m_swapchainSurfaceFormat.format
+        }
+    };
+
+    // finally, create the graphics pipeline
+    // the nullptr can be used to load a pipeline cache, which significantly speeds this operation up
+    // pipeline chaches can even be stored in files!
+    m_graphicsPipeline = vk::raii::Pipeline(m_device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
 }
 
 vk::raii::ShaderModule MainApplication::createShaderModule(const vector<uint8_t>& code) const

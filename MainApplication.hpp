@@ -87,4 +87,7 @@ private:
     std::vector<vk::raii::ImageView> m_swapchainImageViews;
     vk::SurfaceFormatKHR m_swapchainSurfaceFormat;
     vk::Extent2D m_swapchainExtent;
+    // graphics pipeline stuff
+    vk::raii::PipelineLayout m_pipelineLayout = nullptr;
+    vk::raii::Pipeline m_graphicsPipeline = nullptr;
 };
