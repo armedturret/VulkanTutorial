@@ -43,6 +43,8 @@ void MainApplication::initVulkan()
     createSwapChain();
     createImageViews();
     createGraphicsPipeline();
+    createCommandPool();
+    createCommandBuffer();
 }
 
 void MainApplication::createInstance()
@@ -250,11 +252,13 @@ void MainApplication::createLogicalDevice()
             break;
     }
 
+    m_queueIndex = qfpIndex;
+
     // Queue priority required even w/ just one queue
     float queuePriority = 0.5f;
     // Creates a queue family of one
     vk::DeviceQueueCreateInfo deviceQueueCreateInfo{
-        .queueFamilyIndex = qfpIndex,
+        .queueFamilyIndex = m_queueIndex,
         .queueCount = 1,
         .pQueuePriorities = &queuePriority
     };
@@ -281,7 +285,7 @@ void MainApplication::createLogicalDevice()
     };
     m_device = vk::raii::Device(m_physicalDevice, deviceCreateInfo);
 
-    m_graphicsQueue = vk::raii::Queue(m_device, qfpIndex, 0);
+    m_graphicsQueue = vk::raii::Queue(m_device, m_queueIndex, 0);
 }
 
 void MainApplication::createSwapChain()
@@ -563,6 +567,73 @@ vk::raii::ShaderModule MainApplication::createShaderModule(const vector<uint8_t>
     return { m_device, createInfo };
 }
 
+void MainApplication::createCommandPool()
+{
+    assert(m_queueIndex != -1);
+    cout << "Creating command pool..." << endl;
+    vk::CommandPoolCreateInfo poolInfo
+    {
+        // allow command buffers to be re-recorded individually every frame
+        .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 
+        // command buffers are executed by device queues
+        .queueFamilyIndex = m_queueIndex
+    };
+
+    m_commandPool = vk::raii::CommandPool(m_device, poolInfo);
+}
+
+void MainApplication::createCommandBuffer()
+{
+    assert(m_commandPool != nullptr);
+    cout << "Creating command buffer..." << endl;
+
+    vk::CommandBufferAllocateInfo allocInfo{
+        .commandPool = m_commandPool,
+        // primary = can be submitted to queues directly, secondary = can be called indirectly
+        .level = vk::CommandBufferLevel::ePrimary,
+        .commandBufferCount = 1
+    };
+    m_commandBuffer = move(vk::raii::CommandBuffers(m_device, allocInfo).front());
+}
+
+
+void MainApplication::transitionImageLayout(
+    std::uint32_t imageIndex,
+    vk::ImageLayout oldLayout,
+    vk::ImageLayout newLayout,
+    vk::AccessFlags2 srcAccessMask,
+    vk::AccessFlags2 dstAccessMask,
+    vk::PipelineStageFlags2 srcStageMask,
+    vk::PipelineStageFlags2 dstStageMask)
+{
+    // this function is useful to transition the image's layout
+    // to one for rendering color attachments or presenting
+    vk::ImageMemoryBarrier2 barrier = {
+        .srcStageMask = srcStageMask,
+        .srcAccessMask = srcAccessMask,
+        .dstStageMask = dstStageMask,
+        .dstAccessMask = dstAccessMask,
+        .oldLayout = oldLayout,
+        .newLayout = newLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = m_swapchainImages[imageIndex],
+        .subresourceRange = {
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1
+        }
+    };
+    vk::DependencyInfo dependencyInfo = {
+        .dependencyFlags = {},
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier
+    };
+    m_commandBuffer.pipelineBarrier2(dependencyInfo);
+}
+
 void MainApplication::mainLoop()
 {
     cout << "Beginning main loop..." << endl;
@@ -570,6 +641,75 @@ void MainApplication::mainLoop()
     {
         glfwPollEvents();
     }
+}
+
+void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
+{
+    // begin info has some hints for recording a command buffer, but it's not pertinent rn
+    m_commandBuffer.begin({});
+
+    transitionImageLayout(
+        imageIndex,
+        vk::ImageLayout::eUndefined,
+        vk::ImageLayout::eColorAttachmentOptimal, // optimise for color attachments
+        {}, // don't  wait on anything from previous stage
+        vk::AccessFlagBits2::eColorAttachmentWrite, // subsequent stages wait on this
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput, // srcStage
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput // dstStage
+    );
+
+    vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    vk::RenderingAttachmentInfo attachmentInfo = {
+        .imageView = m_swapchainImageViews[imageIndex],
+        .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+        .loadOp = vk::AttachmentLoadOp::eClear, // clear image before rendering
+        .storeOp = vk::AttachmentStoreOp::eStore, // store to image after rendering
+        .clearValue = clearColor
+    };
+    vk::RenderingInfo renderingInfo = {
+        .renderArea = {
+            .offset = {0, 0},
+            .extent = m_swapchainExtent
+        },
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &attachmentInfo
+    };
+    // actually render the damn thing
+    m_commandBuffer.beginRendering(renderingInfo);
+
+    // use our previous created graphics pipeline (i.e. shaders and stuff)
+    m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    
+    // dynamic rendering, specify here instead of during pipeline creation
+    m_commandBuffer.setViewport(0,
+        vk::Viewport(
+            0.0f, // x
+            0.0f, // y
+            static_cast<float>(m_swapchainExtent.width),
+            static_cast<float>(m_swapchainExtent.height),
+            0.0f, // min depth
+            1.0f)); // max depth
+    m_commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_swapchainExtent));
+
+    // 700+ lines of code in.... draw a triangle
+    m_commandBuffer.draw(3, 1, 0, 0);
+
+    m_commandBuffer.endRendering();
+
+    // need to transition to a presentation layout
+    transitionImageLayout(
+        imageIndex,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eColorAttachmentWrite, // wait for color attachment
+        {},
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+        vk::PipelineStageFlagBits2::eBottomOfPipe
+    );
+    
+    // phew... it's over
+    m_commandBuffer.end();
 }
 
 void MainApplication::cleanup()

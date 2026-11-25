@@ -67,8 +67,22 @@ private:
     void createGraphicsPipeline();
     vk::raii::ShaderModule createShaderModule(const std::vector<std::uint8_t>& code) const;
 
+    // funcs for creating the command pool + buffers
+    void createCommandPool();
+    void createCommandBuffer();
+
     // main loop functions
     void mainLoop();
+
+    void recordCommandBuffer(std::uint32_t imageIndex);
+    void transitionImageLayout(
+        std::uint32_t imageIndex,
+        vk::ImageLayout oldLayout,
+        vk::ImageLayout newLayout,
+        vk::AccessFlags2 srcAccessMask,
+        vk::AccessFlags2 dstAccessMask,
+        vk::PipelineStageFlags2 srcStageMask,
+        vk::PipelineStageFlags2 dstStageMask);
 
     void cleanup();
 
@@ -80,6 +94,7 @@ private:
     // logical device tied to the physical one
     vk::raii::Device m_device = nullptr;
     vk::raii::Queue m_graphicsQueue = nullptr;
+    std::uint32_t m_queueIndex = -1;
     // window surface to render to
     vk::raii::SurfaceKHR m_surface = nullptr;
     vk::raii::SwapchainKHR m_swapchain = nullptr;
@@ -90,4 +105,6 @@ private:
     // graphics pipeline stuff
     vk::raii::PipelineLayout m_pipelineLayout = nullptr;
     vk::raii::Pipeline m_graphicsPipeline = nullptr;
+    vk::raii::CommandPool m_commandPool = nullptr;
+    vk::raii::CommandBuffer m_commandBuffer = nullptr;
 };
