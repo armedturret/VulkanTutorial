@@ -14,6 +14,9 @@ constexpr bool USE_VALIDATION_LAYERS = false;
 constexpr bool USE_VALIDATION_LAYERS = true;
 #endif
 
+// how many flames will we allow to concurrently render
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+
 // Validation layers to use for debugging
 const std::vector<char const*> validationLayers = {
     "VK_LAYER_KHRONOS_validation" // comes with the lunarg vulkan sdk
@@ -69,7 +72,7 @@ private:
 
     // funcs for creating the command pool + buffers
     void createCommandPool();
-    void createCommandBuffer();
+    void createCommandBuffers();
 
     void createSyncObjects();
 
@@ -111,10 +114,12 @@ private:
     vk::raii::Pipeline m_graphicsPipeline = nullptr;
     // rendering stuff
     vk::raii::CommandPool m_commandPool = nullptr;
-    vk::raii::CommandBuffer m_commandBuffer = nullptr;
+    std::vector<vk::raii::CommandBuffer> m_commandBuffers;
+    // frame index for accessing command buffers + presentation semaphores
+    std::uint32_t m_frameIndex = 0;
     // semaphores = gpu side synchronization
-    vk::raii::Semaphore m_presentCompleteSemaphore = nullptr;
-    vk::raii::Semaphore m_renderFinishedSemaphore = nullptr;
+    std::vector<vk::raii::Semaphore> m_presentCompleteSemaphores;
+    std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
     // fence = cpu to gpu sychnronization (i.e. block program for something)
-    vk::raii::Fence m_drawFence = nullptr;
+    std::vector<vk::raii::Fence> m_frameFences;
 };

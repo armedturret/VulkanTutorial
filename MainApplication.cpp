@@ -44,7 +44,7 @@ void MainApplication::initVulkan()
     createImageViews();
     createGraphicsPipeline();
     createCommandPool();
-    createCommandBuffer();
+    createCommandBuffers();
     createSyncObjects();
 }
 
@@ -588,32 +588,40 @@ void MainApplication::createCommandPool()
     m_commandPool = vk::raii::CommandPool(m_device, poolInfo);
 }
 
-void MainApplication::createCommandBuffer()
+void MainApplication::createCommandBuffers()
 {
     assert(m_commandPool != nullptr);
-    cout << "Creating command buffer..." << endl;
+    cout << "Creating " << MAX_FRAMES_IN_FLIGHT << " command buffers..." << endl;
 
     vk::CommandBufferAllocateInfo allocInfo{
         .commandPool = m_commandPool,
         // primary = can be submitted to queues directly, secondary = can be called indirectly
         .level = vk::CommandBufferLevel::ePrimary,
-        .commandBufferCount = 1
+        .commandBufferCount = MAX_FRAMES_IN_FLIGHT
     };
-    m_commandBuffer = move(vk::raii::CommandBuffers(m_device, allocInfo).front());
+    m_commandBuffers = vk::raii::CommandBuffers(m_device, allocInfo);
 }
 
 void MainApplication::createSyncObjects()
 {
     cout << "Creating sync objects..." << endl;
     assert(m_device != nullptr);
-    m_presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
-    m_renderFinishedSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
-    m_drawFence = vk::raii::Fence(
-        m_device,
-        {
-            .flags = vk::FenceCreateFlagBits::eSignaled // the fence starts signaled
-        }
-    );
+
+    for (size_t i = 0; i < m_swapchainImages.size(); i++)
+    {
+        m_renderFinishedSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
+    }
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    {
+        m_presentCompleteSemaphores.emplace_back(m_device, vk::SemaphoreCreateInfo());
+        m_frameFences.emplace_back(
+            m_device,
+            vk::FenceCreateInfo{
+                .flags = vk::FenceCreateFlagBits::eSignaled // the fence starts signaled
+            }
+        );
+    }
 }
 
 void MainApplication::transitionImageLayout(
@@ -650,7 +658,7 @@ void MainApplication::transitionImageLayout(
         .imageMemoryBarrierCount = 1,
         .pImageMemoryBarriers = &barrier
     };
-    m_commandBuffer.pipelineBarrier2(dependencyInfo);
+    m_commandBuffers[m_frameIndex].pipelineBarrier2(dependencyInfo);
 }
 
 void MainApplication::mainLoop()
@@ -668,41 +676,40 @@ void MainApplication::mainLoop()
 
 void MainApplication::drawFrame()
 {
-    vk::Result fenceResult = m_device.waitForFences(*m_drawFence, vk::True, UINT64_MAX);
+    // wait for the previous frame to be rendered (not necessarily presented)
+    vk::Result fenceResult = m_device.waitForFences(*m_frameFences[m_frameIndex], vk::True, UINT64_MAX);
     if (fenceResult != vk::Result::eSuccess)
     {
         throw std::runtime_error("Failed to wait for fence!");
     }
     // fences, unlike semaphores, need to be cleared manually
-    m_device.resetFences(*m_drawFence);
+    m_device.resetFences(*m_frameFences[m_frameIndex]);
 
-    auto [result, imageIndex] = m_swapchain.acquireNextImage(UINT64_MAX, *m_presentCompleteSemaphore, nullptr);
+    auto [result, imageIndex] = m_swapchain.acquireNextImage(UINT64_MAX, *m_presentCompleteSemaphores[m_frameIndex], nullptr);
+
+    m_commandBuffers[m_frameIndex].reset();
     recordCommandBuffer(imageIndex);
-
-    // Wait until presentation is finished before rendering again
-    // This can be parallelized better so the CPU doesn't have to wait here
-    m_graphicsQueue.waitIdle();
 
     // technically, we can start executing the vertex stage while waiting on the image to be free
     vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
     const vk::SubmitInfo submitInfo{
         .waitSemaphoreCount = 1,
         // wait on presentation to be complete
-        .pWaitSemaphores = &*m_presentCompleteSemaphore,
+        .pWaitSemaphores = &*m_presentCompleteSemaphores[m_frameIndex],
         .pWaitDstStageMask = &waitDestinationStageMask,
         .commandBufferCount = 1,
-        .pCommandBuffers = &*m_commandBuffer,
+        .pCommandBuffers = &*m_commandBuffers[m_frameIndex],
         .signalSemaphoreCount = 1,
         // signal rendering finished when done
-        .pSignalSemaphores = &*m_renderFinishedSemaphore
+        .pSignalSemaphores = &*m_renderFinishedSemaphores[imageIndex]
     };
 
     // start rendering while we set up presentation
-    m_graphicsQueue.submit(submitInfo, *m_drawFence);
+    m_graphicsQueue.submit(submitInfo, *m_frameFences[m_frameIndex]);
 
     const vk::PresentInfoKHR presentInfoKHR{
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &*m_renderFinishedSemaphore,
+        .pWaitSemaphores = &*m_renderFinishedSemaphores[imageIndex],
         .swapchainCount = 1,
         .pSwapchains = &*m_swapchain,
         .pImageIndices = &imageIndex,
@@ -710,12 +717,15 @@ void MainApplication::drawFrame()
     };
 
     result = m_graphicsQueue.presentKHR(presentInfoKHR);
+
+    m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
 {
     // begin info has some hints for recording a command buffer, but it's not pertinent rn
-    m_commandBuffer.begin({});
+    auto& commandBuffer = m_commandBuffers[m_frameIndex];
+    commandBuffer.begin({});
 
     transitionImageLayout(
         imageIndex,
@@ -745,13 +755,13 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
         .pColorAttachments = &attachmentInfo
     };
     // actually render the damn thing
-    m_commandBuffer.beginRendering(renderingInfo);
+    commandBuffer.beginRendering(renderingInfo);
 
     // use our previous created graphics pipeline (i.e. shaders and stuff)
-    m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
 
     // dynamic rendering, specify here instead of during pipeline creation
-    m_commandBuffer.setViewport(0,
+    commandBuffer.setViewport(0,
         vk::Viewport(
             0.0f, // x
             0.0f, // y
@@ -759,12 +769,12 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
             static_cast<float>(m_swapchainExtent.height),
             0.0f, // min depth
             1.0f)); // max depth
-    m_commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_swapchainExtent));
+    commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), m_swapchainExtent));
 
     // 700+ lines of code in.... draw a triangle
-    m_commandBuffer.draw(3, 1, 0, 0);
+    commandBuffer.draw(3, 1, 0, 0);
 
-    m_commandBuffer.endRendering();
+    commandBuffer.endRendering();
 
     // need to transition to a presentation layout
     transitionImageLayout(
@@ -778,7 +788,7 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
     );
 
     // phew... it's over
-    m_commandBuffer.end();
+    commandBuffer.end();
 }
 
 void MainApplication::cleanup()
