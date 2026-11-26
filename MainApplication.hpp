@@ -71,8 +71,12 @@ private:
     void createCommandPool();
     void createCommandBuffer();
 
+    void createSyncObjects();
+
     // main loop functions
     void mainLoop();
+    
+    void drawFrame();
 
     void recordCommandBuffer(std::uint32_t imageIndex);
     void transitionImageLayout(
@@ -105,6 +109,12 @@ private:
     // graphics pipeline stuff
     vk::raii::PipelineLayout m_pipelineLayout = nullptr;
     vk::raii::Pipeline m_graphicsPipeline = nullptr;
+    // rendering stuff
     vk::raii::CommandPool m_commandPool = nullptr;
     vk::raii::CommandBuffer m_commandBuffer = nullptr;
+    // semaphores = gpu side synchronization
+    vk::raii::Semaphore m_presentCompleteSemaphore = nullptr;
+    vk::raii::Semaphore m_renderFinishedSemaphore = nullptr;
+    // fence = cpu to gpu sychnronization (i.e. block program for something)
+    vk::raii::Fence m_drawFence = nullptr;
 };

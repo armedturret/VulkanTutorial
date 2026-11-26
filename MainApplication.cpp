@@ -45,6 +45,7 @@ void MainApplication::initVulkan()
     createGraphicsPipeline();
     createCommandPool();
     createCommandBuffer();
+    createSyncObjects();
 }
 
 void MainApplication::createInstance()
@@ -206,6 +207,11 @@ void MainApplication::pickPhysicalDevice()
             cout << "BAD (Must support dynamic rendering)" << endl;
             continue;
         }
+        if (!features.get<vk::PhysicalDeviceVulkan13Features>().synchronization2)
+        {
+            cout << "BAD (Must support synchronization 2)" << endl;
+            continue;
+        }
         if (!features.get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState)
         {
             cout << "BAD (Must support extended dynamic state)" << endl;
@@ -272,7 +278,7 @@ void MainApplication::createLogicalDevice()
         featureChain = {
             {}, // PhysicalDeviceFeatures2
             {.shaderDrawParameters = true}, // PhysicalDeviceVulkan11Features
-            {.dynamicRendering = true}, // PhysicalDeviceVulkan13Features
+            {.synchronization2 = true, .dynamicRendering = true}, // PhysicalDeviceVulkan13Features
             {.extendedDynamicState = true} // PhysicalDeviceExtendedDynamicStateFeaturesEXT
     };
 
@@ -473,8 +479,8 @@ void MainApplication::createGraphicsPipeline()
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
 
     // Tells vulkan to render like GL_TRIANGLES
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{ 
-        .topology = vk::PrimitiveTopology::eTriangleList 
+    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+        .topology = vk::PrimitiveTopology::eTriangleList
     };
 
     vk::PipelineRasterizationStateCreateInfo rasterizer{
@@ -518,12 +524,12 @@ void MainApplication::createGraphicsPipeline()
         .pDynamicStates = dynamicStates.data()
     };
     vk::PipelineViewportStateCreateInfo viewportState{ .viewportCount = 1, .scissorCount = 1 };
-    
+
     // normally specifies available uniforms, keep empty for now
     // separate from push constants (which are sorta like uniforms too...)
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{ 
-        .setLayoutCount = 0, 
-        .pushConstantRangeCount = 0 
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+        .setLayoutCount = 0,
+        .pushConstantRangeCount = 0
     };
     m_pipelineLayout = vk::raii::PipelineLayout(m_device, pipelineLayoutInfo);
 
@@ -574,7 +580,7 @@ void MainApplication::createCommandPool()
     vk::CommandPoolCreateInfo poolInfo
     {
         // allow command buffers to be re-recorded individually every frame
-        .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer, 
+        .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
         // command buffers are executed by device queues
         .queueFamilyIndex = m_queueIndex
     };
@@ -596,6 +602,19 @@ void MainApplication::createCommandBuffer()
     m_commandBuffer = move(vk::raii::CommandBuffers(m_device, allocInfo).front());
 }
 
+void MainApplication::createSyncObjects()
+{
+    cout << "Creating sync objects..." << endl;
+    assert(m_device != nullptr);
+    m_presentCompleteSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
+    m_renderFinishedSemaphore = vk::raii::Semaphore(m_device, vk::SemaphoreCreateInfo());
+    m_drawFence = vk::raii::Fence(
+        m_device,
+        {
+            .flags = vk::FenceCreateFlagBits::eSignaled // the fence starts signaled
+        }
+    );
+}
 
 void MainApplication::transitionImageLayout(
     std::uint32_t imageIndex,
@@ -640,7 +659,57 @@ void MainApplication::mainLoop()
     while (!glfwWindowShouldClose(m_window))
     {
         glfwPollEvents();
+        drawFrame();
     }
+
+    // wait for all asynch processes to stop
+    m_device.waitIdle();
+}
+
+void MainApplication::drawFrame()
+{
+    vk::Result fenceResult = m_device.waitForFences(*m_drawFence, vk::True, UINT64_MAX);
+    if (fenceResult != vk::Result::eSuccess)
+    {
+        throw std::runtime_error("Failed to wait for fence!");
+    }
+    // fences, unlike semaphores, need to be cleared manually
+    m_device.resetFences(*m_drawFence);
+
+    auto [result, imageIndex] = m_swapchain.acquireNextImage(UINT64_MAX, *m_presentCompleteSemaphore, nullptr);
+    recordCommandBuffer(imageIndex);
+
+    // Wait until presentation is finished before rendering again
+    // This can be parallelized better so the CPU doesn't have to wait here
+    m_graphicsQueue.waitIdle();
+
+    // technically, we can start executing the vertex stage while waiting on the image to be free
+    vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+    const vk::SubmitInfo submitInfo{
+        .waitSemaphoreCount = 1,
+        // wait on presentation to be complete
+        .pWaitSemaphores = &*m_presentCompleteSemaphore,
+        .pWaitDstStageMask = &waitDestinationStageMask,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &*m_commandBuffer,
+        .signalSemaphoreCount = 1,
+        // signal rendering finished when done
+        .pSignalSemaphores = &*m_renderFinishedSemaphore
+    };
+
+    // start rendering while we set up presentation
+    m_graphicsQueue.submit(submitInfo, *m_drawFence);
+
+    const vk::PresentInfoKHR presentInfoKHR{
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &*m_renderFinishedSemaphore,
+        .swapchainCount = 1,
+        .pSwapchains = &*m_swapchain,
+        .pImageIndices = &imageIndex,
+        .pResults = nullptr // optional, pass an array to store results in for multiple swap chains
+    };
+
+    result = m_graphicsQueue.presentKHR(presentInfoKHR);
 }
 
 void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
@@ -680,7 +749,7 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
 
     // use our previous created graphics pipeline (i.e. shaders and stuff)
     m_commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_graphicsPipeline);
-    
+
     // dynamic rendering, specify here instead of during pipeline creation
     m_commandBuffer.setViewport(0,
         vk::Viewport(
@@ -707,7 +776,7 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
         vk::PipelineStageFlagBits2::eColorAttachmentOutput,
         vk::PipelineStageFlagBits2::eBottomOfPipe
     );
-    
+
     // phew... it's over
     m_commandBuffer.end();
 }
