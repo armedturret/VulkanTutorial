@@ -58,6 +58,7 @@ add_custom_command(
 target_compile_definitions(VulkanTutorial PUBLIC
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 # easier extension referencing
     VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1 # lets us use c++ 20 initializer lists
+    VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS=1 # disable out of date error
     GLFW_INCLUDE_VULKAN=1 # setup glfw for vulkan
 )
 
