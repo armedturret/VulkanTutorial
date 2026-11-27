@@ -300,15 +300,9 @@ void MainApplication::recreateSwapChain()
     // pause until un-minimized
     int width = 0, height = 0;
     glfwGetFramebufferSize(m_window, &width, &height);
-    while ((width == 0 || height == 0) && !glfwWindowShouldClose(m_window))
-    {
-        glfwGetFramebufferSize(m_window, &width, &height);
-        glfwWaitEvents();
-    }
-    if (glfwWindowShouldClose(m_window))
-    {
+    // If minimized, just return. This function will be called again by the callbacks.
+    if (width == 0 || height == 0)
         return;
-    }
 
     m_device.waitIdle();
 
@@ -329,7 +323,6 @@ void MainApplication::createSwapChain()
     assert(m_surface != nullptr);
     assert(m_physicalDevice != nullptr);
     assert(m_device != nullptr);
-    cout << "Creating swap chain..." << endl;
     // choose swap chain properties based on available options
     vk::SurfaceCapabilitiesKHR surfaceCapabilities =
         m_physicalDevice.getSurfaceCapabilitiesKHR(m_surface);
@@ -429,8 +422,6 @@ void MainApplication::createImageViews()
 {
     assert(!m_swapchainImages.empty());
     assert(m_swapchainImageViews.empty());
-
-    cout << "Creating image views for swap chain..." << endl;
 
     // creates image views that let us access parts of images
     vk::ImageViewCreateInfo imageViewCreateInfo{
@@ -865,7 +856,8 @@ void MainApplication::initWindow()
 
     m_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Baby's First Vulkan App", nullptr, nullptr);
     glfwSetWindowUserPointer(m_window, this);
-    glfwSetFramebufferSizeCallback(m_window, &this->framebufferResizeCallback);
+    glfwSetWindowRefreshCallback(m_window, &MainApplication::windowRefreshCallback);
+    glfwSetFramebufferSizeCallback(m_window, &MainApplication::framebufferResizeCallback);
 }
 
 void MainApplication::framebufferResizeCallback(GLFWwindow* window, int width, int height)
@@ -873,4 +865,16 @@ void MainApplication::framebufferResizeCallback(GLFWwindow* window, int width, i
     // static function, need to grab pointer from glfw
     auto app = reinterpret_cast<MainApplication*>(glfwGetWindowUserPointer(window));
     app->m_framebufferResized = true;
+
+    app->drawFrame();
+}
+
+void MainApplication::windowRefreshCallback(GLFWwindow* window)
+{
+    auto app = reinterpret_cast<MainApplication*>(glfwGetWindowUserPointer(window));
+    app->m_framebufferResized = true;
+    int width = 0, height = 0;
+    glfwGetWindowSize(window, &width, &height);
+
+    app->drawFrame();
 }
