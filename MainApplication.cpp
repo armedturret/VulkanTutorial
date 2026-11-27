@@ -300,7 +300,7 @@ void MainApplication::recreateSwapChain()
     // pause until un-minimized
     int width = 0, height = 0;
     glfwGetFramebufferSize(m_window, &width, &height);
-    // If minimized, wait just return. This function will be recalled by the callbacks.
+    // If minimized, just return. This function will be called again by the callbacks.
     if (width == 0 || height == 0)
         return;
 
