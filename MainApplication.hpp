@@ -1,6 +1,8 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+// TODO: try removing :)
+#define VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS
 #include <vulkan/vulkan_raii.hpp>
 
 #include <vector>
@@ -33,7 +35,9 @@ public:
 private:
     static std::vector<std::uint8_t> readFileBinary(const std::string& filename);
 
+    // glfw functions
     void initWindow();
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 
     // vulkan init functions
     void initVulkan();
@@ -47,6 +51,7 @@ private:
     void createLogicalDevice();
 
     // swap chain functions
+    void recreateSwapChain();
     void createSwapChain();
     vk::SurfaceFormatKHR chooseSwapSurfaceFormat(
         std::vector<vk::SurfaceFormatKHR> const& availableFormats);
@@ -58,6 +63,8 @@ private:
         vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
 
     void createImageViews();
+
+    void cleanupSwapChain();
 
     // returns if a queue family has all the properties we expect
     bool isValidQueueFamily(
@@ -122,4 +129,6 @@ private:
     std::vector<vk::raii::Semaphore> m_renderFinishedSemaphores;
     // fence = cpu to gpu sychnronization (i.e. block program for something)
     std::vector<vk::raii::Fence> m_frameFences;
+
+    bool m_framebufferResized = false;
 };

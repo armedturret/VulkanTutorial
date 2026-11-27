@@ -294,6 +294,36 @@ void MainApplication::createLogicalDevice()
     m_graphicsQueue = vk::raii::Queue(m_device, m_queueIndex, 0);
 }
 
+void MainApplication::recreateSwapChain()
+{
+    assert(m_device != nullptr);
+    // pause until un-minimized
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(m_window, &width, &height);
+    while ((width == 0 || height == 0) && !glfwWindowShouldClose(m_window))
+    {
+        glfwGetFramebufferSize(m_window, &width, &height);
+        glfwWaitEvents();
+    }
+    if (glfwWindowShouldClose(m_window))
+    {
+        return;
+    }
+
+    m_device.waitIdle();
+
+    cleanupSwapChain();
+
+    createSwapChain();
+    createImageViews();
+}
+
+void MainApplication::cleanupSwapChain()
+{
+    m_swapchainImageViews.clear();
+    m_swapchain = nullptr;
+}
+
 void MainApplication::createSwapChain()
 {
     assert(m_surface != nullptr);
@@ -682,10 +712,22 @@ void MainApplication::drawFrame()
     {
         throw std::runtime_error("Failed to wait for fence!");
     }
-    // fences, unlike semaphores, need to be cleared manually
-    m_device.resetFences(*m_frameFences[m_frameIndex]);
 
     auto [result, imageIndex] = m_swapchain.acquireNextImage(UINT64_MAX, *m_presentCompleteSemaphores[m_frameIndex], nullptr);
+
+    if (result == vk::Result::eErrorOutOfDateKHR)
+    {
+        recreateSwapChain();
+        return;
+    }
+    if (result != vk::Result::eSuboptimalKHR && result != vk::Result::eSuccess)
+    {
+        throw runtime_error("Failed to acquire swap chain image!");
+    }
+
+    // fences, unlike semaphores, need to be cleared manually
+    // need to wait to reset fences until we KNOW we'll be queuing more work
+    m_device.resetFences(*m_frameFences[m_frameIndex]);
 
     m_commandBuffers[m_frameIndex].reset();
     recordCommandBuffer(imageIndex);
@@ -717,6 +759,15 @@ void MainApplication::drawFrame()
     };
 
     result = m_graphicsQueue.presentKHR(presentInfoKHR);
+    if (result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR || m_framebufferResized)
+    {
+        m_framebufferResized = false;
+        recreateSwapChain();
+    }
+    else if (result != vk::Result::eSuccess)
+    {
+        throw runtime_error("Failed to present graphics queue!");
+    }
 
     m_frameIndex = (m_frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
@@ -794,6 +845,8 @@ void MainApplication::recordCommandBuffer(std::uint32_t imageIndex)
 void MainApplication::cleanup()
 {
     cout << "Cleaning up..." << endl;
+    cleanupSwapChain();
+
     // We love RAII (no other vulkans should need this :))
     glfwDestroyWindow(m_window);
     glfwTerminate();
@@ -808,8 +861,16 @@ void MainApplication::initWindow()
     // Disable GLFW creating an OpenGL context
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    // Disable resizable windows (for now)
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     m_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Baby's First Vulkan App", nullptr, nullptr);
+    glfwSetWindowUserPointer(m_window, this);
+    glfwSetFramebufferSizeCallback(m_window, &this->framebufferResizeCallback);
+}
+
+void MainApplication::framebufferResizeCallback(GLFWwindow* window, int width, int height)
+{
+    // static function, need to grab pointer from glfw
+    auto app = reinterpret_cast<MainApplication*>(glfwGetWindowUserPointer(window));
+    app->m_framebufferResized = true;
 }
