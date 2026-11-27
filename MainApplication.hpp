@@ -38,6 +38,7 @@ private:
     // glfw functions
     void initWindow();
     static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+    static void windowRefreshCallback(GLFWwindow* window);
 
     // vulkan init functions
     void initVulkan();
@@ -65,7 +66,6 @@ private:
     void createImageViews();
 
     void cleanupSwapChain();
-
     // returns if a queue family has all the properties we expect
     bool isValidQueueFamily(
         vk::raii::PhysicalDevice physicalDevice,
@@ -85,7 +85,7 @@ private:
 
     // main loop functions
     void mainLoop();
-    
+
     void drawFrame();
 
     void recordCommandBuffer(std::uint32_t imageIndex);
